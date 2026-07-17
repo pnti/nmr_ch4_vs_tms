@@ -1,6 +1,6 @@
 ## Rolling Notes
 
-#### 17-07-2026: Problem with cache
+#### Problem with cache
 
 It's possible that it's necessary to clean tmp directory between kolejnymi uruchomieniami programi.
 
