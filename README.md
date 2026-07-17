@@ -6,7 +6,7 @@
     mf.grids.level = 2
 
 
-#### Setting memory issues
+#### Resolving memory issues
 
     print(f"\n[{name}] SCF startowe...")
     mf = dft.RKS(mol)
