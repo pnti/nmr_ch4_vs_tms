@@ -1,5 +1,18 @@
 ## Rolling Notes
 
+#### Disable orbital trimming to fix CPHF reshape error
+
+    print(f"\n[{name}] SCF startowe...")
+    mf = dft.RKS(mol)
+    mf.max_memory = MEMORY
+    mf.xc = XC
+    mf.grids.level = 2
+    mf.conv_tol = 1e-9
+    mf.canonical_orthog_thresh = 0  # <--- Dodaj tę linię
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError(f"SCF nie zbiegło dla {name}")
+
 #### Lower grid level
 
     # mf.grids.level = GRID_LEVEL
