@@ -1,3 +1,9 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "8"
+
+import pyscf
+pyscf.lib.param.MAX_MEMORY = 12000
+
 import numpy as np
 from pyscf import gto, dft
 from pyscf.prop import nmr
@@ -29,6 +35,7 @@ def run_nmr(mol_xyz, name, charge=0, spin=0):
     print(f"START: {name}")
     print(f"{'='*50}")
 
+    # Właściwa inicjalizacja obiektu Mole z symetrią i limitami
     mol = gto.Mole()
     mol.atom = mol_xyz
     mol.basis = BASIS
@@ -36,14 +43,15 @@ def run_nmr(mol_xyz, name, charge=0, spin=0):
     mol.charge = charge
     mol.spin = spin
     mol.verbose = VERBOSE
+    mol.symmetry = False
+    mol.max_memory = 12000
     mol.build()
     print(f"Atomy: {mol.natm}, elektrony: {mol.tot_electrons()}")
 
     print(f"\n[{name}] SCF startowe...")
     mf = dft.RKS(mol)
-    mf.max_memory = 12000 # zmiana
+    mf.max_memory = 12000
     mf.xc = XC
-    #mf.grids.level = GRID_LEVEL
     mf.grids.level = 2
     mf.conv_tol = 1e-9
     mf.kernel()
@@ -51,12 +59,28 @@ def run_nmr(mol_xyz, name, charge=0, spin=0):
         raise RuntimeError(f"SCF nie zbiegło dla {name}")
 
     print(f"\n[{name}] Optymalizacja geometrii...")
-    mol_eq = geometric_solver.optimize(mf, maxsteps=100)
+    mol_eq = geometric_solver.optimize(mf, maxsteps=100, convergence='tight')
     mol_eq.tofile(f'{name}_opt.xyz')
 
     print(f"\n[{name}] SCF na optymalnej geometrii...")
-    mf_eq = dft.RKS(mol_eq)
-    mf_eq.max_memory = 12000 # zmiana
+    # 1. Wyciągamy zoptymalizowane współrzędne w jednostkach atomowych (Bohr)
+    coords_eq = mol_eq.atom_coords()
+    
+    # 2. Budujemy nową cząsteczkę łącząc symbole ze zoptymalizowanymi współrzędnymi
+    mol_final = gto.Mole()
+    mol_final.atom = [[mol_eq.atom_symbol(i), coords_eq[i]] for i in range(mol_eq.natm)]
+    mol_final.basis = BASIS
+    mol_final.unit = 'Bohr'      # Bardzo ważne: atom_coords() zwraca wartości w jednostkach Bohr
+    mol_final.charge = charge
+    mol_final.spin = spin
+    mol_final.verbose = VERBOSE
+    mol_final.symmetry = 'D2'    # Wymuszamy symetrię dla kroku NMR
+    mol_final.max_memory = 12000
+    mol_final.build()
+
+    # 3. Podajemy nowy, symetryczny obiekt do obliczeń RKS
+    mf_eq = dft.RKS(mol_final)
+    mf_eq.max_memory = 12000
     mf_eq.xc = XC
     mf_eq.grids.level = GRID_LEVEL
     mf_eq.conv_tol = 1e-10
@@ -64,15 +88,25 @@ def run_nmr(mol_xyz, name, charge=0, spin=0):
     if not mf_eq.converged:
         raise RuntimeError(f"SCF po opt nie zbiegło dla {name}")
 
+#    print(f"\n[{name}] SCF na optymalnej geometrii...")
+#    mf_eq = dft.RKS(mol_eq)
+#    mf_eq.max_memory = 12000
+#    mf_eq.xc = XC
+#    mf_eq.grids.level = GRID_LEVEL
+#    mf_eq.conv_tol = 1e-10
+#    mf_eq.kernel()
+#    if not mf_eq.converged:
+#        raise RuntimeError(f"SCF po opt nie zbiegło dla {name}")
+
     print(f"\n[{name}] Liczenie GIAO-NMR...")
-    #nmr_obj = nmr.NMR(mf_eq) # TUTAJ ZMIANA
     nmr_obj = nmr.rks.NMR(mf_eq)
-    #nmr_obj.gauge_orig = 'giao'
     nmr_obj.kernel()
 
-    shielding_tensors=nmr_obj.shielding()
+    shielding_tensors = nmr_obj.shielding()
 
-    c_indices = [i for i, a in enumerate(mol_eq.elements) if a == 'C']
+    # Bezpieczne pobranie symboli atomów
+    #c_indices = [i for i, a in enumerate(mol_eq.atom_pure_symbols()) if a == 'C']
+    c_indices = [i for i, a in enumerate(mol_final.elements) if a == 'C']
     sigma_c = []
     for idx in c_indices:
         tensor = shielding_tensors[idx]
@@ -83,6 +117,79 @@ def run_nmr(mol_xyz, name, charge=0, spin=0):
     t1 = time.time()
     print(f"[{name}] Gotowe w {t1-t0:.1f} s")
     return np.array(sigma_c), mol_eq
+
+#def run_nmr(mol_xyz, name, charge=0, spin=0):
+#    t0 = time.time()
+#    print(f"\n{'='*50}")
+#    print(f"START: {name}")
+#    print(f"{'='*50}")
+
+#    #mol = gto.Mole()
+#    #mol.atom = mol_xyz
+#    #mol.basis = BASIS
+#    #mol.unit = 'Angstrom'
+#    #mol.charge = charge
+#    #mol.spin = spin
+#    #mol.verbose = VERBOSE
+#    #mol.build()
+#    #print(f"Atomy: {mol.natm}, elektrony: {mol.tot_electrons()}")
+
+#    mol = gto.Mole()
+#    mol.atom = mol_xyz
+#    mol.basis = BASIS
+#    mol.unit = 'Angstrom'
+#    mol.charge = charge
+#    mol.spin = spin
+#    mol.verbose = VERBOSE
+#    mol.symmetry = True      # <-- Włączenie symetrii cząsteczki
+#    mol.max_memory = 12000   # <-- Globalny limit pamięci (12 GB) dla wszystkich operacji na tym obiekcie
+#    mol.build()
+#    print(f"Atomy: {mol.natm}, elektrony: {mol.tot_electrons()}")
+
+#    print(f"\n[{name}] SCF startowe...")
+#    mf = dft.RKS(mol)
+#    mf.max_memory = 12000 # zmiana
+#    mf.xc = XC
+#    #mf.grids.level = GRID_LEVEL
+#    mf.grids.level = 2
+#    mf.conv_tol = 1e-9
+#    mf.kernel()
+#    if not mf.converged:
+#        raise RuntimeError(f"SCF nie zbiegło dla {name}")
+
+#    print(f"\n[{name}] Optymalizacja geometrii...")
+#    mol_eq = geometric_solver.optimize(mf, maxsteps=100, convergence='tight')
+#    mol_eq.tofile(f'{name}_opt.xyz')
+
+#    print(f"\n[{name}] SCF na optymalnej geometrii...")
+#    mf_eq = dft.RKS(mol_eq)
+#    mf_eq.max_memory = 12000 # zmiana
+#    mf_eq.xc = XC
+#    mf_eq.grids.level = GRID_LEVEL
+#    mf_eq.conv_tol = 1e-10
+#    mf_eq.kernel()
+#    if not mf_eq.converged:
+#        raise RuntimeError(f"SCF po opt nie zbiegło dla {name}")
+
+#    print(f"\n[{name}] Liczenie GIAO-NMR...")
+#    #nmr_obj = nmr.NMR(mf_eq) # TUTAJ ZMIANA
+#    nmr_obj = nmr.rks.NMR(mf_eq)
+#    #nmr_obj.gauge_orig = 'giao'
+#    nmr_obj.kernel()
+
+#    shielding_tensors=nmr_obj.shielding()
+
+#    c_indices = [i for i, a in enumerate(mol_eq.elements) if a == 'C']
+#    sigma_c = []
+#    for idx in c_indices:
+#        tensor = shielding_tensors[idx]
+#        sigma_iso = np.trace(tensor) / 3.0
+#        sigma_c.append(sigma_iso)
+#        print(f"[{name}] C{idx}: σ_iso = {sigma_iso:.3f} ppm")
+
+#    t1 = time.time()
+#    print(f"[{name}] Gotowe w {t1-t0:.1f} s")
+#    return np.array(sigma_c), mol_eq
 
 ch4_xyz = '''
 C 0.000000 0.000000 0.000000
