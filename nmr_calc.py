@@ -110,6 +110,20 @@ def run_nmr(mol_xyz, name, target_symmetry, freeze_atoms=None, charge=0, spin=0)
     print(f"\n[{name}] Liczenie GIAO-NMR...")
     nmr_obj = nmr.rks.NMR(mf_eq)
 
+    # --- POPRAWKA DLA BLEDU KRYLOVA / VINDO ---
+    old_vind = nmr_obj.vind
+    def patched_vind(mo1):
+        nmo = mf_eq.mo_energy.size
+        nocc = np.count_nonzero(mf_eq.mo_occ > 0)
+        if mo1.size == nmo * nocc:
+            mo1_3 = np.stack([mo1.reshape(nmo, nocc)] * 3)
+            v3 = old_vind(mo1_3)
+            return np.asarray(v3).reshape(3, nmo, nocc)[0].reshape(mo1.shape)
+        return old_vind(mo1)
+    
+    nmr_obj.vind = patched_vind
+    # ------------------------------------------
+
     # Wyciąganie wyników
     shielding_tensors = nmr_obj.kernel()
 
