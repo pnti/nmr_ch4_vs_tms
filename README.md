@@ -1,5 +1,9 @@
 ## Rolling Notes
 
+#### ### Running with Live Logging
+
+`python3 -u nmr_calc.py > obliczenia_output4.log 2>&1 &`
+
 #### Disable orbital trimming to fix CPHF reshape error
 
     print(f"\n[{name}] SCF startowe...")
